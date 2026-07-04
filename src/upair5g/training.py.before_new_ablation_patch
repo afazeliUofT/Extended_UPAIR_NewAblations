@@ -235,7 +235,6 @@ def _train_step(
     no: tf.Tensor,
     nmse_loss_weight: float,
     grad_clip_norm: float,
-    use_nll_loss: bool = True,
     ls_estimator: Any | None = None,
     pilot_mask: tf.Tensor | None = None,
 ) -> dict[str, tf.Tensor]:
@@ -257,11 +256,7 @@ def _train_step(
         loss_nll = tf.reduce_mean(sq_err / (err_hat + 1e-6) + tf.math.log(err_hat + 1e-6))
         nmse_prop = tf.reduce_mean(sq_err) / power
         nmse_ls = tf.reduce_mean(complex_sq_abs(residual_ls)) / power
-        if bool(use_nll_loss):
-            loss = loss_nll + float(nmse_loss_weight) * nmse_prop
-        else:
-            # A8: NMSE-only training after deleting learned uncertainty.
-            loss = nmse_prop
+        loss = loss_nll + float(nmse_loss_weight) * nmse_prop
 
     grads = tape.gradient(loss, estimator.trainable_variables)
     grad_var_pairs = [(g, v) for g, v in zip(grads, estimator.trainable_variables) if g is not None]
@@ -541,7 +536,6 @@ def train_model(
     checkpoint_every = int(get_cfg(cfg, "training.checkpoint_every", log_every))
     nmse_loss_weight = float(cfg["training"]["nmse_loss_weight"])
     grad_clip_norm = float(cfg["training"]["grad_clip_norm"])
-    use_nll_loss = bool(get_cfg(cfg, "training.use_nll_loss", True))
     memory_cleanup_every_steps = int(get_cfg(cfg, "training.memory_cleanup_every_steps", 0))
     resume_enabled = bool(get_cfg(cfg, "training.resume", True))
     lr_summary = _learning_rate_summary(cfg)
@@ -558,11 +552,6 @@ def train_model(
         f"active_seed={int(cfg['system']['seed'])} "
         f"training_seed={training_seed} "
         f"evaluation_seed={evaluation_seed}"
-    )
-    print(
-        "[TRAIN] loss_config "
-        f"use_nll_loss={use_nll_loss} "
-        f"nmse_loss_weight={float(nmse_loss_weight):.6g}"
     )
 
     history: list[dict[str, Any]] = []
@@ -635,7 +624,6 @@ def train_model(
                     "learning_rate_schedule": lr_summary,
                     "weight_decay": float(cfg["training"]["weight_decay"]),
                     "nmse_loss_weight": float(nmse_loss_weight),
-                    "use_nll_loss": bool(use_nll_loss),
                     "grad_clip_norm": float(grad_clip_norm),
                     "eval_every": int(eval_every),
                     "val_steps": int(cfg["training"]["val_steps"]),
@@ -676,7 +664,6 @@ def train_model(
                 no=batch["no"],
                 nmse_loss_weight=nmse_loss_weight,
                 grad_clip_norm=grad_clip_norm,
-                use_nll_loss=use_nll_loss,
                 ls_estimator=system["ls_estimator"],
                 pilot_mask=system["pilot_mask"],
             )

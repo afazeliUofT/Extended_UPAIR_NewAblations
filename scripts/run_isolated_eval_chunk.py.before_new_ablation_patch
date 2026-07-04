@@ -32,13 +32,6 @@ def _safe_tag(x: Any) -> str:
     return s.replace("-", "m").replace("+", "p").replace(".", "p").replace(",", "_")
 
 
-def _checkpoint_variant_for(variant: str) -> str:
-    # A8† is evaluation-only: build the errvar-swap graph, but load M0 weights.
-    if str(variant) == "errvar_eval_swap":
-        return "main_full_d256_b4_r2"
-    return str(variant)
-
-
 def _read_single_row(curves_path: Path, receiver: str, ebno: float, num_users: int) -> dict[str, Any]:
     df = pd.read_csv(curves_path)
     if "receiver" in df.columns:
@@ -92,19 +85,16 @@ def main() -> None:
         require_external=True,
     )
 
-    checkpoint_variant = _checkpoint_variant_for(args.variant)
     checkpoint = Path(args.checkpoint) if args.checkpoint else (
         PROJECT_ROOT
         / "TWC_plots_comprehensive"
         / "runs_rx16"
         / f"seed{args.seed}"
         / args.dmrs_case
-        / checkpoint_variant
+        / args.variant
         / "checkpoints"
         / str(get_cfg(train_cfg, "training.checkpoint_name", "best.weights.h5"))
     )
-    if checkpoint_variant != args.variant:
-        print(f"[ISO-CHUNK] using checkpoint from variant={checkpoint_variant} for eval variant={args.variant}")
     if not checkpoint.exists():
         raise FileNotFoundError(f"Missing checkpoint for isolated eval: {checkpoint}")
 

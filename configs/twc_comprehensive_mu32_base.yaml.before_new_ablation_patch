@@ -143,14 +143,6 @@ model:
   pilot_mask_mode: per_stream
   error_feature_mode: per_user
   error_variance_update: multiplicative
-  use_prompt_film: true
-  prompt_pooling: pilot_masked
-  use_freq_attn: true
-  use_time_attn: true
-  zero_raw_y_feature: false
-  ls_anchor: true
-  learn_error_variance: true
-  force_ls_error_variance: false
 training:
   steps: 40000
   resume: true
@@ -175,7 +167,6 @@ training:
   learning_rate_restart_m_mul: 0.8
   weight_decay: 1.0e-05
   nmse_loss_weight: 0.1
-  use_nll_loss: true
   grad_clip_norm: 1.0
   checkpoint_name: best.weights.h5
   memory_cleanup_every_steps: 100

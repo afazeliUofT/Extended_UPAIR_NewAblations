@@ -23,155 +23,63 @@ from upair5g.training import train_model  # noqa: E402
 
 
 VARIANTS: dict[str, dict[str, Any]] = {
-    # M0: reference full UPAIR.
-    "main_full_d256_b4_r2": {
-        "label": "M0 full UPAIR, d=256, L=4, r=2",
-        "overrides": {
-            "model.d_model": 256,
-            "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-            "model.use_prompt_film": True,
-            "model.prompt_pooling": "pilot_masked",
-            "model.use_freq_attn": True,
-            "model.use_time_attn": True,
-            "model.zero_raw_y_feature": False,
-            "model.ls_anchor": True,
-            "model.learn_error_variance": True,
-            "model.force_ls_error_variance": False,
-            "training.use_nll_loss": True,
-        },
-    },
-    # Legacy alias kept only so old commands still resolve.
     "main_d256_b4_r2": {
-        "label": "legacy alias of M0 full UPAIR, d=256, L=4, r=2",
+        "label": "d=256, L=4, r=2",
         "overrides": {
             "model.d_model": 256,
             "model.num_blocks": 4,
             "model.mlp_ratio": 2.0,
-            "model.use_prompt_film": True,
-            "model.prompt_pooling": "pilot_masked",
-            "model.use_freq_attn": True,
-            "model.use_time_attn": True,
-            "model.zero_raw_y_feature": False,
-            "model.ls_anchor": True,
-            "model.learn_error_variance": True,
-            "model.force_ls_error_variance": False,
-            "training.use_nll_loss": True,
         },
     },
-    # A1: width capacity control.
-    "width_light_d192_b4_r2": {
-        "label": "A1 width-light capacity control, d=192, L=4, r=2",
-        "overrides": {
-            "model.d_model": 192,
-            "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-        },
-    },
-    # A2: depth capacity control.
     "shallow_d256_b2_r2": {
-        "label": "A2 shallow capacity control, d=256, L=2, r=2",
+        "label": "d=256, L=2, r=2",
         "overrides": {
             "model.d_model": 256,
             "model.num_blocks": 2,
             "model.mlp_ratio": 2.0,
         },
     },
-    # A3: remove pilot-prompt FiLM.
-    "no_prompt_film_d256_b4_r2": {
-        "label": "A3 no pilot-prompt FiLM",
+    "deep_d256_b6_r2": {
+        "label": "d=256, L=6, r=2",
         "overrides": {
             "model.d_model": 256,
-            "model.num_blocks": 4,
+            "model.num_blocks": 6,
             "model.mlp_ratio": 2.0,
-            "model.use_prompt_film": False,
         },
     },
-    # A4: remove frequency and time axial attention; keep local conv/MLP.
-    "local_only_no_axial_attn_d256_b4_r2": {
-        "label": "A4 local-only, no axial attention",
+    "narrow_d192_b4_r2": {
+        "label": "d=192, L=4, r=2",
         "overrides": {
-            "model.d_model": 256,
+            "model.d_model": 192,
             "model.num_blocks": 4,
             "model.mlp_ratio": 2.0,
-            "model.use_freq_attn": False,
-            "model.use_time_attn": False,
         },
     },
-    # A5: frequency attention only; no temporal axial attention.
-    "freq_attn_only_d256_b4_r2": {
-        "label": "A5 frequency-attention only",
+    "wide_d320_b4_r2": {
+        "label": "d=320, L=4, r=2",
         "overrides": {
-            "model.d_model": 256,
+            "model.d_model": 320,
             "model.num_blocks": 4,
             "model.mlp_ratio": 2.0,
-            "model.use_freq_attn": True,
-            "model.use_time_attn": False,
         },
     },
-    # A6: remove raw received-grid information while preserving tensor shape.
-    "no_raw_y_d256_b4_r2": {
-        "label": "A6 zero raw received-grid Y features",
+    "wide_deep_d320_b6_r2": {
+        "label": "d=320, L=6, r=2",
         "overrides": {
-            "model.d_model": 256,
-            "model.num_blocks": 4,
+            "model.d_model": 320,
+            "model.num_blocks": 6,
             "model.mlp_ratio": 2.0,
-            "model.zero_raw_y_feature": True,
         },
     },
-    # A7: direct H prediction, no additive LS output anchor.
-    "no_ls_anchor_d256_b4_r2": {
-        "label": "A7 no LS output anchor; direct H prediction",
+    "mlpwide_d256_b4_r4": {
+        "label": "d=256, L=4, r=4",
         "overrides": {
             "model.d_model": 256,
             "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-            "model.ls_anchor": False,
-        },
-    },
-    # A8: delete learned uncertainty head and train NMSE-only.
-    "no_learned_errvar_d256_b4_r2": {
-        "label": "A8 no learned error variance; NMSE-only training",
-        "overrides": {
-            "model.d_model": 256,
-            "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-            "model.learn_error_variance": False,
-            "model.force_ls_error_variance": False,
-            "training.use_nll_loss": False,
-        },
-    },
-    # A3†: conditional iso-parameter prompt pooling test.
-    "global_pool_prompt_d256_b4_r2": {
-        "label": "A3 dagger global-mean prompt pooling",
-        "overrides": {
-            "model.d_model": 256,
-            "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-            "model.use_prompt_film": True,
-            "model.prompt_pooling": "global_mean",
-        },
-    },
-    # A8†: evaluation-only. Uses M0 weights but LS err_var at the detector.
-    "errvar_eval_swap": {
-        "label": "A8 dagger eval-only M0 H-hat with LS error variance",
-        "overrides": {
-            "model.d_model": 256,
-            "model.num_blocks": 4,
-            "model.mlp_ratio": 2.0,
-            "model.use_prompt_film": True,
-            "model.prompt_pooling": "pilot_masked",
-            "model.use_freq_attn": True,
-            "model.use_time_attn": True,
-            "model.zero_raw_y_feature": False,
-            "model.ls_anchor": True,
-            "model.learn_error_variance": True,
-            "model.force_ls_error_variance": True,
-            "training.use_nll_loss": True,
+            "model.mlp_ratio": 4.0,
         },
     },
 }
-
 
 
 DMRS_CASES: dict[str, dict[str, Any]] = {
@@ -192,21 +100,70 @@ DMRS_CASES: dict[str, dict[str, Any]] = {
 }
 
 
-_SHARED_BUILTIN_OPTUNA_1DMRS: dict[str, Any] = {
-    "system.batch_size_train": 32,
-    "system.batch_size_eval": 32,
-    "training.learning_rate": 0.0005950487024755413,
-    "training.weight_decay": 7.169815362007231e-05,
-    "training.nmse_loss_weight": 0.2313047274659292,
-    "model.dropout": 0.0010714912918497743,
-    "model.residual_scale": 0.39417978357077454,
-}
-
-# Fallback only. The intended ablation protocol uses external copied JSON files
-# with --require-optuna-best, so every arm receives the same frozen M0 recipe.
 OPTUNA_BEST_1DMRS: dict[str, dict[str, Any]] = {
-    name: dict(_SHARED_BUILTIN_OPTUNA_1DMRS)
-    for name in VARIANTS
+    "main_d256_b4_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
+    "shallow_d256_b2_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
+    "deep_d256_b6_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
+    "narrow_d192_b4_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0006975764648386961,
+        "training.weight_decay": 5.876882839088582e-05,
+        "training.nmse_loss_weight": 0.1074731692161375,
+        "model.dropout": 0.06909454442449153,
+        "model.residual_scale": 0.6447495210807277,
+    },
+    "wide_d320_b4_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
+    "wide_deep_d320_b6_r2": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
+    "mlpwide_d256_b4_r4": {
+        "system.batch_size_train": 32,
+        "system.batch_size_eval": 32,
+        "training.learning_rate": 0.0005950487024755413,
+        "training.weight_decay": 7.169815362007231e-05,
+        "training.nmse_loss_weight": 0.2313047274659292,
+        "model.dropout": 0.0010714912918497743,
+        "model.residual_scale": 0.39417978357077454,
+    },
 }
 
 
@@ -419,7 +376,7 @@ def _eval_cfg(train_cfg: dict[str, Any], variant_name: str, dmrs_case: str, num_
     set_cfg(cfg, "evaluation.compiled_receiver_error_counts", bool(get_cfg(cfg, "evaluation.compiled_receiver_error_counts", True)))
     set_cfg(cfg, "evaluation.memory_cleanup_every_microbatch", bool(get_cfg(cfg, "evaluation.memory_cleanup_every_microbatch", True)))
     set_cfg(cfg, "evaluation.memory_cleanup_every_batches", int(get_cfg(cfg, "evaluation.memory_cleanup_every_batches", 1)))
-    set_cfg(cfg, "evaluation.save_example_batch", variant_name in {"main_d256_b4_r2", "main_full_d256_b4_r2"} and num_users == 4)
+    set_cfg(cfg, "evaluation.save_example_batch", variant_name == "main_d256_b4_r2" and num_users == 4)
     return cfg
 
 
@@ -485,7 +442,7 @@ def _copy_curves(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the 1--4 user comprehensive UPAIR ablation for the configured gNB antenna count.")
     parser.add_argument("--config", default=str(PROJECT_ROOT / "configs" / "twc_comprehensive_mu32_base.yaml"))
-    parser.add_argument("--variants", default="main_full_d256_b4_r2,width_light_d192_b4_r2,shallow_d256_b2_r2,no_prompt_film_d256_b4_r2,local_only_no_axial_attn_d256_b4_r2,freq_attn_only_d256_b4_r2,no_raw_y_d256_b4_r2,no_ls_anchor_d256_b4_r2,no_learned_errvar_d256_b4_r2")
+    parser.add_argument("--variants", default="main_d256_b4_r2,shallow_d256_b2_r2,deep_d256_b6_r2,narrow_d192_b4_r2,wide_d320_b4_r2,wide_deep_d320_b6_r2,mlpwide_d256_b4_r4")
     parser.add_argument("--dmrs-cases", default="1dmrs,2dmrs", help="Comma-separated DMRS cases to run. Default: 1dmrs,2dmrs.")
     parser.add_argument("--seeds", default=None, help="Comma-separated random seeds. Defaults to system.seeds in the config.")
     parser.add_argument("--eval-users", default=None, help="Comma-separated evaluation user counts. Overrides multiuser.eval_num_users.")

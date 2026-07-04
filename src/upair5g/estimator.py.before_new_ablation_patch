@@ -20,26 +20,12 @@ from .utils import (
 
 
 class FiLMAxialBlock(tf.keras.layers.Layer):
-    """One UPAIR block with independently removable mechanisms.
-
-    Ablation switches:
-      - use_prompt_film=False deletes the per-block prompt projection and FiLM.
-      - use_freq_attn=False deletes frequency MHA and its LayerNorm.
-      - use_time_attn=False deletes time MHA and its LayerNorm.
-
-    The local conv and MLP branches remain unless the entire block count is changed.
-    """
-
     def __init__(
         self,
         d_model: int,
         num_heads: int,
         mlp_ratio: float,
         dropout: float,
-        *,
-        use_prompt_film: bool = True,
-        use_freq_attn: bool = True,
-        use_time_attn: bool = True,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -47,71 +33,58 @@ class FiLMAxialBlock(tf.keras.layers.Layer):
         self.num_heads = int(num_heads)
         self.mlp_ratio = float(mlp_ratio)
         self.dropout_rate = float(dropout)
-        self.use_prompt_film = bool(use_prompt_film)
-        self.use_freq_attn = bool(use_freq_attn)
-        self.use_time_attn = bool(use_time_attn)
 
-        if self.use_freq_attn:
-            self.norm0 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
-            self.freq_attn = tf.keras.layers.MultiHeadAttention(
-                num_heads=self.num_heads,
-                key_dim=max(1, self.d_model // self.num_heads),
-                dropout=self.dropout_rate,
-            )
-
-        if self.use_time_attn:
-            self.norm1 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
-            self.time_attn = tf.keras.layers.MultiHeadAttention(
-                num_heads=self.num_heads,
-                key_dim=max(1, self.d_model // self.num_heads),
-                dropout=self.dropout_rate,
-            )
-
+        self.norm0 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
+        self.norm1 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
         self.norm2 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
         self.norm3 = tf.keras.layers.LayerNormalization(epsilon=1e-5)
+
+        self.freq_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=self.num_heads,
+            key_dim=max(1, self.d_model // self.num_heads),
+            dropout=self.dropout_rate,
+        )
+        self.time_attn = tf.keras.layers.MultiHeadAttention(
+            num_heads=self.num_heads,
+            key_dim=max(1, self.d_model // self.num_heads),
+            dropout=self.dropout_rate,
+        )
 
         self.dwconv = tf.keras.layers.DepthwiseConv2D(kernel_size=3, padding="same")
         self.pwconv = tf.keras.layers.Conv2D(self.d_model, kernel_size=1, padding="same")
         self.fc1 = tf.keras.layers.Dense(int(self.d_model * self.mlp_ratio))
         self.fc2 = tf.keras.layers.Dense(self.d_model)
-        if self.use_prompt_film:
-            self.prompt_proj = tf.keras.layers.Dense(2 * self.d_model)
+        self.prompt_proj = tf.keras.layers.Dense(2 * self.d_model)
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)
         self.activation = tf.keras.layers.Activation("gelu")
 
-    def _film(self, x: tf.Tensor, prompt: tf.Tensor | None) -> tf.Tensor:
-        if not self.use_prompt_film:
-            return x
-        if prompt is None:
-            raise ValueError("Prompt FiLM is enabled but prompt is None.")
+    def _film(self, x: tf.Tensor, prompt: tf.Tensor) -> tf.Tensor:
         gamma, beta = tf.split(self.prompt_proj(prompt), 2, axis=-1)
         gamma = gamma[:, tf.newaxis, tf.newaxis, :]
         beta = beta[:, tf.newaxis, tf.newaxis, :]
         return x * (1.0 + gamma) + beta
 
-    def call(self, x: tf.Tensor, prompt: tf.Tensor | None, training: bool = False) -> tf.Tensor:
+    def call(self, x: tf.Tensor, prompt: tf.Tensor, training: bool = False) -> tf.Tensor:
         b = tf.shape(x)[0]
         t = tf.shape(x)[1]
         f = tf.shape(x)[2]
         d = tf.shape(x)[3]
 
-        if self.use_freq_attn:
-            z = self._film(self.norm0(x), prompt)
-            zf = tf.reshape(z, [b * t, f, d])
-            af = self.freq_attn(zf, zf, training=training)
-            af = self.dropout(af, training=training)
-            af = tf.reshape(af, [b, t, f, d])
-            x = x + af
+        z = self._film(self.norm0(x), prompt)
+        zf = tf.reshape(z, [b * t, f, d])
+        af = self.freq_attn(zf, zf, training=training)
+        af = self.dropout(af, training=training)
+        af = tf.reshape(af, [b, t, f, d])
+        x = x + af
 
-        if self.use_time_attn:
-            z = self._film(self.norm1(x), prompt)
-            zt = tf.transpose(z, [0, 2, 1, 3])
-            zt = tf.reshape(zt, [b * f, t, d])
-            at = self.time_attn(zt, zt, training=training)
-            at = self.dropout(at, training=training)
-            at = tf.reshape(at, [b, f, t, d])
-            at = tf.transpose(at, [0, 2, 1, 3])
-            x = x + at
+        z = self._film(self.norm1(x), prompt)
+        zt = tf.transpose(z, [0, 2, 1, 3])
+        zt = tf.reshape(zt, [b * f, t, d])
+        at = self.time_attn(zt, zt, training=training)
+        at = self.dropout(at, training=training)
+        at = tf.reshape(at, [b, f, t, d])
+        at = tf.transpose(at, [0, 2, 1, 3])
+        x = x + at
 
         z = self._film(self.norm2(x), prompt)
         lc = self.dwconv(z)
@@ -151,17 +124,6 @@ class UPAIRChannelEstimator(tf.keras.Model):
         self.use_pilot_mask_feature = bool(model_cfg.get("use_pilot_mask_feature", True))
         self.pilot_mask_mode = str(model_cfg.get("pilot_mask_mode", "per_stream")).lower()
         self.error_feature_mode = str(model_cfg.get("error_feature_mode", "per_user")).lower()
-
-        # Mechanism-ablation switches. Defaults reproduce full UPAIR.
-        self.use_prompt_film = bool(model_cfg.get("use_prompt_film", True))
-        self.prompt_pooling = str(model_cfg.get("prompt_pooling", "pilot_masked")).lower()
-        self.use_freq_attn = bool(model_cfg.get("use_freq_attn", True))
-        self.use_time_attn = bool(model_cfg.get("use_time_attn", True))
-        self.zero_raw_y_feature = bool(model_cfg.get("zero_raw_y_feature", False))
-        self.ls_anchor = bool(model_cfg.get("ls_anchor", True))
-        self.learn_error_variance = bool(model_cfg.get("learn_error_variance", True))
-        self.force_ls_error_variance = bool(model_cfg.get("force_ls_error_variance", False))
-
         self.residual_scale = float(model_cfg.get("residual_scale", 0.35))
         self.eps = 1e-6
 
@@ -177,48 +139,40 @@ class UPAIRChannelEstimator(tf.keras.Model):
             input_channels = 4 * self.num_rx_ant + extra_channels
 
         self.stem = tf.keras.layers.Conv2D(self.d_model, kernel_size=1, padding="same")
-        if self.use_prompt_film:
-            self.prompt_mlp = tf.keras.Sequential(
-                [
-                    tf.keras.layers.Dense(self.d_model, activation="gelu"),
-                    tf.keras.layers.Dense(self.d_model),
-                ],
-                name="prompt_mlp",
-            )
+        self.prompt_mlp = tf.keras.Sequential(
+            [
+                tf.keras.layers.Dense(self.d_model, activation="gelu"),
+                tf.keras.layers.Dense(self.d_model),
+            ]
+        )
         self.blocks = [
             FiLMAxialBlock(
                 d_model=self.d_model,
                 num_heads=int(cfg["model"]["num_heads"]),
                 mlp_ratio=float(cfg["model"]["mlp_ratio"]),
                 dropout=float(cfg["model"]["dropout"]),
-                use_prompt_film=self.use_prompt_film,
-                use_freq_attn=self.use_freq_attn,
-                use_time_attn=self.use_time_attn,
                 name=f"axial_block_{i}",
             )
             for i in range(int(cfg["model"]["num_blocks"]))
         ]
 
-        # Full UPAIR starts exactly from LS and learns residual corrections.
-        # A7 disables the anchor and predicts H directly; then the head uses
-        # Glorot initialization and residual_scale is ignored.
+        # Start exactly from LS and learn only residual corrections.
         self.delta_head = tf.keras.layers.Conv2D(
             2 * self.num_rx_ant * self.max_num_users,
             kernel_size=1,
             padding="same",
-            kernel_initializer="zeros" if self.ls_anchor else "glorot_uniform",
+            kernel_initializer="zeros",
             bias_initializer="zeros",
             name="delta_head",
         )
-        if self.learn_error_variance:
-            self.err_head = tf.keras.layers.Conv2D(
-                self.num_rx_ant * self.max_num_users,
-                kernel_size=1,
-                padding="same",
-                kernel_initializer="zeros",
-                bias_initializer="zeros",
-                name="err_head",
-            )
+        self.err_head = tf.keras.layers.Conv2D(
+            self.num_rx_ant * self.max_num_users,
+            kernel_size=1,
+            padding="same",
+            kernel_initializer="zeros",
+            bias_initializer="zeros",
+            name="err_head",
+        )
 
         self.pilot_mask = tf.cast(
             tf.convert_to_tensor(pilot_mask) if pilot_mask is not None else extract_pilot_mask_per_stream(resource_grid),
@@ -357,15 +311,9 @@ class UPAIRChannelEstimator(tf.keras.Model):
                 err_btfnc = tf.squeeze(err_btfnu, axis=-1)
                 err_map = tf.reduce_mean(err_btfnc, axis=-1, keepdims=True)
 
-        y_ri = complex_to_ri_channels(y_btfnc)
-        if self.zero_raw_y_feature:
-            # A6: keep the architecture/input dimensionality untouched, but
-            # remove information carried by the received resource grid.
-            y_ri = tf.zeros_like(y_ri)
-
         features = [
             h_ri,
-            y_ri,
+            complex_to_ri_channels(y_btfnc),
             err_map,
         ]
 
@@ -382,25 +330,12 @@ class UPAIRChannelEstimator(tf.keras.Model):
         return feat, h_ls_btfnu, err_btfnu, y_btfnc
 
     def _compute_prompt(self, z: tf.Tensor, pilot_mask: tf.Tensor | None = None) -> tf.Tensor:
-        if not self.use_prompt_film:
-            return tf.zeros([tf.shape(z)[0], self.d_model], dtype=z.dtype)
-
         b = tf.shape(z)[0]
         t = tf.shape(z)[1]
         f = tf.shape(z)[2]
-
-        if self.prompt_pooling in {"global", "global_mean", "mean", "all"}:
-            pooled = tf.reduce_mean(z, axis=[1, 2])
-        elif self.prompt_pooling in {"pilot", "pilot_masked", "dmrs", "pilot_region"}:
-            mask = self._pilot_mask_for_batch(pilot_mask, b, t, f, collapse=True)
-            denom = tf.reduce_sum(mask, axis=[1, 2], keepdims=False) + 1e-6
-            pooled = tf.reduce_sum(z * mask, axis=[1, 2], keepdims=False) / denom
-        else:
-            raise ValueError(
-                "Unknown model.prompt_pooling="
-                f"{self.prompt_pooling!r}. Use pilot_masked or global_mean."
-            )
-
+        mask = self._pilot_mask_for_batch(pilot_mask, b, t, f, collapse=True)
+        denom = tf.reduce_sum(mask, axis=[1, 2], keepdims=False) + 1e-6
+        pooled = tf.reduce_sum(z * mask, axis=[1, 2], keepdims=False) / denom
         return self.prompt_mlp(pooled)
 
     def estimate_with_ls(
@@ -415,44 +350,29 @@ class UPAIRChannelEstimator(tf.keras.Model):
         feat, h_ls_btfnu, err_btfnu, _ = self._build_features(y, h_ls, err_ls, no, pilot_mask=pilot_mask)
 
         z = self.stem(feat)
-        prompt = self._compute_prompt(z, pilot_mask=pilot_mask) if self.use_prompt_film else None
+        prompt = self._compute_prompt(z, pilot_mask=pilot_mask)
 
         for block in self.blocks:
             z = block(z, prompt, training=training)
 
         delta = self.delta_head(z)
+        err_delta = self.err_head(z)
         b = tf.shape(z)[0]
         t = tf.shape(z)[1]
         f = tf.shape(z)[2]
         delta = tf.reshape(delta, [b, t, f, self.num_rx_ant, self.max_num_users, 2])
         real_delta, imag_delta = tf.unstack(delta, axis=-1)
 
-        residual_or_direct = tf.complex(real_delta, imag_delta)
+        residual = tf.complex(real_delta, imag_delta)
         h_anchor = pad_user_dim(h_ls_btfnu, self.max_num_users)
         err_anchor = pad_user_dim(err_btfnu, self.max_num_users)
-
-        if self.ls_anchor:
-            h_hat_btfnu = h_anchor + tf.cast(self.residual_scale, residual_or_direct.dtype) * residual_or_direct
-        else:
-            # A7: direct H prediction. LS is still available as an input feature,
-            # but not as the additive output anchor.
-            h_hat_btfnu = residual_or_direct
-
-        if self.learn_error_variance:
-            # Always call err_head when present so M0 weights are buildable/loadable.
-            err_delta = self.err_head(z)
-            err_delta = tf.reshape(err_delta, [b, t, f, self.num_rx_ant, self.max_num_users])
-            # Multiplicative positive correction. With the zero-initialized err_head,
-            # this starts exactly from the LS error variance.
-            err_scale = tf.exp(tf.clip_by_value(err_delta, -6.0, 6.0))
-            err_hat_btfnu = tf.maximum(err_anchor * err_scale, tf.cast(self.eps, err_anchor.dtype))
-        else:
-            # A8: delete learned err_head and feed LS err_var to the detector.
-            err_hat_btfnu = tf.maximum(err_anchor, tf.cast(self.eps, err_anchor.dtype))
-
-        if self.force_ls_error_variance:
-            # A8†: keep M0 weights and H-hat fixed, but swap detector uncertainty.
-            err_hat_btfnu = tf.maximum(err_anchor, tf.cast(self.eps, err_anchor.dtype))
+        h_hat_btfnu = h_anchor + tf.cast(self.residual_scale, residual.dtype) * residual
+        err_delta = tf.reshape(err_delta, [b, t, f, self.num_rx_ant, self.max_num_users])
+        # Multiplicative positive correction.  With the zero-initialized err_head,
+        # this starts exactly from the LS error variance instead of adding
+        # softplus(-4) to it.
+        err_scale = tf.exp(tf.clip_by_value(err_delta, -6.0, 6.0))
+        err_hat_btfnu = tf.maximum(err_anchor * err_scale, tf.cast(self.eps, err_anchor.dtype))
 
         actual_users = tf.shape(h_ls_btfnu)[-1]
         h_hat_btfnu = h_hat_btfnu[..., :actual_users]

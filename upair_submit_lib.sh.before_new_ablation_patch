@@ -18,15 +18,13 @@ UPAIR_LIB_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${UPAIR_LIB_ROOT}/upair_portable_env.sh"
 
 UPAIR_VARIANTS_DEFAULT=(
-  main_full_d256_b4_r2
-  width_light_d192_b4_r2
+  main_d256_b4_r2
   shallow_d256_b2_r2
-  no_prompt_film_d256_b4_r2
-  local_only_no_axial_attn_d256_b4_r2
-  freq_attn_only_d256_b4_r2
-  no_raw_y_d256_b4_r2
-  no_ls_anchor_d256_b4_r2
-  no_learned_errvar_d256_b4_r2
+  deep_d256_b6_r2
+  narrow_d192_b4_r2
+  wide_d320_b4_r2
+  wide_deep_d320_b6_r2
+  mlpwide_d256_b4_r4
 )
 
 upair_variants() {
